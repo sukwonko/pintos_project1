@@ -208,7 +208,7 @@ thread_create (const char *name, int priority, thread_func *function, void *aux)
 
 
   /* Implement file descriptor table */
-  t->file_desc_table = palloc_get_page(0);
+  t->file_desc_table = (struct file **)malloc(sizeof(struct file*)*128);
   t->file_desc_count = 2;
 
   /* Implement process hierarchy */
@@ -311,18 +311,22 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
-
+  struct thread *cur = thread_current();
+  struct thread *child;
+  struct list_elem* tmp_child_elem;
+  for(tmp_child_elem= list_begin(&cur->child_list); 
+		  tmp_child_elem != list_end(&cur ->child_list); ){
+          child = list_entry(tmp_child_elem, struct thread, child_elem);
+	  tmp_child_elem= list_remove(tmp_child_elem);
+  }
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
   list_remove (&thread_current()->allelem);
 
-  /* If thread name is main(thus, if this thread is init thread), do not sema up this. */
-  if(strcmp(thread_current()->name, "main")) //If thread is not "main" process, sema up.
-  {
-    sema_up(&thread_current()->exit_sema);
-  }
+  thread_current() -> is_exit = 1;
+  sema_up(&thread_current()->exit_sema);
 
   thread_current ()->status = THREAD_DYING;
   schedule ();

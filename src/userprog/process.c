@@ -23,7 +23,6 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 void argument_stack(const char **parse, const int arg_count, void **esp);
-void remove_child_process(struct thread *child);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -33,13 +32,13 @@ tid_t
 process_execute (const char *file_name) 
 {
   char *fn_copy;
-  char fn_copy_more[256]; /* Added to eliminate segmentation fault. */
+  char *fn_copy_more; 
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
-  //fn_copy_more = palloc_get_page (0);
+  fn_copy_more = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
 
@@ -47,10 +46,10 @@ process_execute (const char *file_name)
   strlcpy (fn_copy_more, file_name, PGSIZE);
 
   /* Used for 3rd argument in 'strtok_r' function.*/
-  char *strtok_save_ptr;
+  char *save_ptr;
 
   /* get 1st token from 'file_name' */
-  char *thread_name = strtok_r(fn_copy_more, " ", &strtok_save_ptr);
+  char *thread_name = strtok_r(fn_copy_more, " ", &save_ptr);
   if(!thread_name) /* Exit if tokenizing task fails. */
     return TID_ERROR;
 
@@ -74,12 +73,7 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
-  /*
-    Temporary variable that store tokenized arguments from 'file_name' variable.
-    This variable will be used in 'argument_stack' function to store argument into stack.
-  */
-  char **parse = (char**)malloc(sizeof(char*)); //parsed tokens will be stored here temporary.
-  //char **parse = palloc_get_page(0); //parsed tokens will be stored here temporary.
+  char **parse = (char **)malloc(sizeof(char *)); //parsed tokens will be stored temporarily 
   int arg_count = 0; //The number of parsed arguments.
   char *temp_parsed; //The variable that store one parsed argument temporary.
   char *strtok_save_ptr; //3rd argument of strtok_r function.
@@ -91,33 +85,31 @@ start_process (void *file_name_)
   {
     parse = (char**)realloc(parse, sizeof(char*)*(arg_count + 1));
     parse[arg_count] = (char*)malloc(sizeof(char)*strlen(temp_parsed));
-    strlcpy(parse[arg_count], temp_parsed, sizeof(char)*(strlen(temp_parsed) + 1)); //To prevent shallow copy, strlcpy function be used.
+    strlcpy(parse[arg_count], temp_parsed, sizeof(char)*(strlen(temp_parsed) + 1)); 
     arg_count++;
   }
-
-  /* 1st token parsed from 'file_name' that will be passed to 'load' function. */
-  char *load_file_name = parse[0];
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (load_file_name, &if_.eip, &if_.esp);
+  success = load (parse[0], &if_.eip, &if_.esp);
 
-  thread_current()->is_load = 1;
-  if(thread_current()->parent_thread){
-	sema_up(&thread_current()->load_sema);
+  sema_up(&thread_current()->load_sema);
+
+  /* If load failed, quit. */
+  palloc_free_page (file_name);
+  if (!success){
+    thread_current() -> is_load = 0;
+    thread_exit ();
+  }
+  else{
+    thread_current() -> is_load = 1;
   }
 
   argument_stack(parse , arg_count , &if_.esp);
 
-  /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success)
-    thread_exit ();
-
-  /* Free dynamically allocated memory used for parsing. */
   arg_count--;
   while(arg_count >= 0)
   {
@@ -144,7 +136,6 @@ argument_stack(const char **parse, const int arg_count, void **esp)
 
   for(i = arg_count - 1; i >= 0; i--)
   {
-    /* Inserting argv data into stack by 'char' data size. */
     for(j = strlen(parse[i]); j >= 0; j--)
     {
       *esp -= 1;
@@ -156,7 +147,8 @@ argument_stack(const char **parse, const int arg_count, void **esp)
   }
 
   /* Word Size Align */
-  *esp = (unsigned int)*esp & 0xfffffffc;
+  unsigned int count_number = ((unsigned int)*esp) % sizeof(uint32_t); 
+  *esp -= count_number;
 
   /* NULL argv set. */
   *esp -= 4;
@@ -169,7 +161,7 @@ argument_stack(const char **parse, const int arg_count, void **esp)
     *(unsigned int*)(*esp) = argv_addr_store[i];
   }
 
-  /* insert address of '**argv'. This is equal to *argv[0], so code looks like below. */
+  /* insert address of '**argv'. */
   *esp -= 4;
   *(unsigned int*)(*esp) = (unsigned int)(*esp) + 4;
 
@@ -182,8 +174,8 @@ argument_stack(const char **parse, const int arg_count, void **esp)
   memset(*esp, 0, sizeof(unsigned int));
 }
 
-struct thread
-*get_child_process(int pid)
+struct thread *
+get_child_process(int pid)
 {
   struct thread *parent = thread_current(); /* Get current process object */
   struct thread *child = NULL; /* Initialize child process object. */
@@ -193,7 +185,7 @@ struct thread
   for(e = list_begin(&parent->child_list); e != list_end(&parent->child_list); e = list_next(e))
   {
     struct thread *node = list_entry(e, struct thread, child_elem); //Get each object in list.
-    if(node->tid == pid) //If find target child...
+    if(node->tid ==(tid_t)pid) //If find target child...
     {
       child = node;
       break;
@@ -215,11 +207,11 @@ remove_child_process(struct thread *child)
 int
 process_add_file(struct file *f)
 {
-  struct file **fd_table = thread_current()->file_desc_table; //Get file descriptor table.
-  int fd_count = thread_current()->file_desc_count; //Get fd count.
+  struct thread *t = thread_current(); 
+  int fd_count = t->file_desc_count; //Get fd count.
 
-  fd_table[fd_count] = f; /* Insert file  */
-  thread_current()->file_desc_count += 1; //Increase fd count.
+  t->file_desc_table[fd_count] = f; /* Insert file  */
+  t->file_desc_count += 1; //Increase fd count.
 
   return fd_count;
 }
@@ -227,16 +219,24 @@ process_add_file(struct file *f)
 /* This function searches fd table and returns address of file object. */
 struct file *
 process_get_file(int fd)
-{
-  return thread_current()->file_desc_table[fd]; //Returns matched file object.
+{ 
+  struct thread *t = thread_current(); 
+  if( fd <2 || t-> file_desc_count <= fd){
+	return NULL;
+  }
+  return t->file_desc_table[fd];
 }
 
 /* This function closes related file and initialize correpond fd table. */
 void
 process_close_file(int fd)
 {
-  file_close(thread_current()->file_desc_table[fd]); //Close target file.
-  thread_current()->file_desc_table[fd] = NULL; //Set target table to NULL.
+  struct thread *t = thread_current();
+  if( fd < 2 || t-> file_desc_count <= fd){
+	return;
+  }
+  file_close(t->file_desc_table[fd]);
+  t->file_desc_table[fd] = NULL;
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -280,7 +280,7 @@ process_exit (void)
   {
     process_close_file(i);
   }
-  palloc_free_page(cur->file_desc_table); //Clear memory for file descriptor table.
+  free(cur->file_desc_table); //Clear memory for file descriptor table.
   file_close(cur->run_file);
   pd = cur->pagedir;
   if (pd != NULL) 

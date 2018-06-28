@@ -112,7 +112,7 @@ struct thread
     /* Check load/exit state */
     int is_load;
     int is_exit;
-
+   
     /* semaphore for load/exit */
     struct semaphore load_sema;
     struct semaphore exit_sema;
@@ -122,6 +122,7 @@ struct thread
    
     /* file struct pointer */
     struct file *run_file; 
+    
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
