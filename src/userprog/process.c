@@ -19,7 +19,6 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
-
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 void argument_stack(const char **parse, const int arg_count, void **esp);
@@ -397,25 +396,24 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
-
-  extern struct lock filesys_lock;
+  extern struct lock filesys_lock; 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
-  lock_acquire(&filesys_lock);
+  //lock_acquire(&filesys_lock);
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
     {
-      lock_release(&filesys_lock);
+    //  lock_release(&filesys_lock);
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
-   t->run_file = file;
-   file_deny_write(file);
-   lock_release(&filesys_lock); 
+   //t->run_file = file;
+   //file_deny_write(file);
+   //lock_release(&filesys_lock); 
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
