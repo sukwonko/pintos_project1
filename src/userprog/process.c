@@ -252,7 +252,7 @@ process_wait (tid_t child_tid)
 {
   struct thread *child = get_child_process(child_tid); //Get child process object.
 
-  if(child) //Target child exists.
+  if(child) 
   {
     sema_down(&child->exit_sema); //sema down for child process. This will block parent process.
 
@@ -402,18 +402,18 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
-  //lock_acquire(&filesys_lock);
+  lock_acquire(&filesys_lock);
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
     {
-    //  lock_release(&filesys_lock);
+      lock_release(&filesys_lock);
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
-   //t->run_file = file;
-   //file_deny_write(file);
-   //lock_release(&filesys_lock); 
+   t->run_file = file;
+   file_deny_write(file);
+   lock_release(&filesys_lock); 
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
